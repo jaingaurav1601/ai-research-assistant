@@ -2,8 +2,14 @@ from groq import Groq
 import requests
 import json
 from datetime import datetime
+import os
+import streamlit as st
+# Get API key from environment variable
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY environment variable not set")
 
-client = Groq(api_key="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")
+client = Groq(api_key=GROQ_API_KEY)
 
 def search_topic(query):
     """Search and return relevant info with citations"""

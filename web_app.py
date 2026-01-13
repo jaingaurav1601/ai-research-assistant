@@ -9,8 +9,17 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 from research_assistant import search_topic, save_report, research_agent_core
 
-# Initialize Groq client
-client = Groq(api_key="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")
+# Initialize Groq client with secrets
+try:
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+except (KeyError, FileNotFoundError):
+    # Fallback to environment variable if secrets not configured
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        st.error("GROQ_API_KEY not found. Please set it in secrets or environment variables.")
+        st.stop()
+
+client = Groq(api_key=groq_api_key)
 
 def frame_user_query(user_query):
     """Use LLM to frame user query into optimized search queries"""
