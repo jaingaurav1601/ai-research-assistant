@@ -19,6 +19,8 @@ logging.basicConfig(
     ]
 )
 
+logger = logging.getLogger(__name__)
+
 # Create logs directory if it doesn't exist
 if not os.path.exists('logs'):
     os.makedirs('logs')
