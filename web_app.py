@@ -4,25 +4,49 @@ import requests
 from datetime import datetime
 import sys
 import os
+import logging
+
+# Create logs directory if it doesn't exist
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+# Configure logging for Streamlit app
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/streamlit_app.log')
+    ]
+)
+
+# Create logs directory if it doesn't exist
+if not os.path.exists('logs'):
+    os.makedirs('logs')
 
 # Add the current directory to path to import research_assistant
 sys.path.insert(0, os.path.dirname(__file__))
 from research_assistant import search_topic, save_report, research_agent_core
 
+logger.info("Streamlit app started")
+
 # Initialize Groq client with secrets
 try:
     groq_api_key = st.secrets["GROQ_API_KEY"]
+    logger.info("GROQ_API_KEY loaded from Streamlit secrets")
 except (KeyError, FileNotFoundError):
     # Fallback to environment variable if secrets not configured
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
+        logger.error("GROQ_API_KEY not found in secrets or environment")
         st.error("GROQ_API_KEY not found. Please set it in secrets or environment variables.")
         st.stop()
+    logger.info("GROQ_API_KEY loaded from environment variable")
 
 client = Groq(api_key=groq_api_key)
 
 def frame_user_query(user_query):
     """Use LLM to frame user query into optimized search queries"""
+    logger.info(f"Framing user query: {user_query}")
     
     prompt = f"""Given this user query: "{user_query}"
 
@@ -36,29 +60,36 @@ ADDITIONAL_QUERIES: [query1], [query2], [query3]
 
 Focus on keywords that will yield maximum relevant results. Make queries specific and focused."""
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=300
-    )
-    
-    response_text = response.choices[0].message.content
-    
-    # Parse the response
-    queries = {"main": "", "additional": []}
-    
     try:
-        for line in response_text.split('\n'):
-            if line.startswith('MAIN_QUERY:'):
-                queries['main'] = line.replace('MAIN_QUERY:', '').strip()
-            elif line.startswith('ADDITIONAL_QUERIES:'):
-                additional = line.replace('ADDITIONAL_QUERIES:', '').strip()
-                queries['additional'] = [q.strip() for q in additional.split(',')]
-    except:
-        # Fallback to original query if parsing fails
-        queries['main'] = user_query
-    
-    return queries
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
+        )
+        
+        response_text = response.choices[0].message.content
+        logger.debug(f"LLM response for query framing: {response_text}")
+        
+        # Parse the response
+        queries = {"main": "", "additional": []}
+        
+        try:
+            for line in response_text.split('\n'):
+                if line.startswith('MAIN_QUERY:'):
+                    queries['main'] = line.replace('MAIN_QUERY:', '').strip()
+                elif line.startswith('ADDITIONAL_QUERIES:'):
+                    additional = line.replace('ADDITIONAL_QUERIES:', '').strip()
+                    queries['additional'] = [q.strip() for q in additional.split(',')]
+            logger.info(f"Parsed queries - main: {queries['main']}, additional: {len(queries['additional'])} queries")
+        except:
+            # Fallback to original query if parsing fails
+            logger.warning(f"Failed to parse LLM response, using original query: {user_query}")
+            queries['main'] = user_query
+        
+        return queries
+    except Exception as e:
+        logger.error(f"Error framing user query: {str(e)}")
+        return {"main": user_query, "additional": []}
 
 # Streamlit UI
 st.set_page_config(page_title="AI Research Assistant", page_icon="🔍", layout="wide")
@@ -105,12 +136,16 @@ with col2:
 if research_button:
     if not topic:
         st.warning("Please enter a topic")
+        logger.warning("Research button clicked with empty topic")
     else:
+        logger.info(f"Starting research for topic: {topic}")
+        
         # Step 1: Frame the user query
         with st.spinner("📝 Optimizing your query..."):
             try:
                 framed_queries = frame_user_query(topic)
             except Exception as e:
+                logger.error(f"Error framing query for topic '{topic}': {str(e)}")
                 st.error(f"Error framing query: {str(e)}")
                 framed_queries = {"main": topic, "additional": []}
         
@@ -126,17 +161,21 @@ if research_button:
         # Step 2: Perform research using research_agent_core
         with st.spinner(f"🔍 Researching {topic}..."):
             try:
+                logger.info(f"Executing research with queries: main='{framed_queries['main']}', additional={framed_queries['additional']}")
                 result = research_agent_core(
                     framed_queries['main'],
                     framed_queries['additional'] if framed_queries['additional'] else None,
                     report_length
                 )
+                logger.info(f"Research completed for '{topic}' - filename: {result.get('filename')}")
             except Exception as e:
+                logger.error(f"Error during research for topic '{topic}': {str(e)}", exc_info=True)
                 st.error(f"Error during research: {str(e)}")
                 result = {"report": None, "filename": None, "citations": []}
         
         if result.get("filename"):
             st.success("✅ Research complete!")
+            logger.info(f"Research successful for '{topic}'")
             
             # Display report
             st.markdown("### 📄 Report")
@@ -179,5 +218,7 @@ CITATIONS
             
             # Update stats
             st.session_state.research_count += 1
+            logger.info(f"Report download button displayed - total research count: {st.session_state.research_count}")
         else:
             st.error("❌ Could not find enough information. Try a different topic or be more specific.")
+            logger.warning(f"Research failed for topic '{topic}' - no filename returned")

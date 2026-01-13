@@ -4,6 +4,23 @@ import json
 from datetime import datetime
 import os
 import streamlit as st
+import logging
+import sys
+
+# Configure logging with centralized config
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/research_assistant.log')
+    ]
+)
+
+# Create logs directory if it doesn't exist
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+logger = logging.getLogger(__name__)
 
 # Get API key from environment variable
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -16,9 +33,14 @@ if GROQ_API_KEY:
 
 def search_topic(query):
     """Search and return relevant info with citations"""
+    logger.info(f"Starting search for query: {query}")
     url = f"https://api.duckduckgo.com/?q={query}&format=json"
     try:
-        response = requests.get(url, timeout=5)
+        # Add user agent to improve response quality
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, timeout=5, headers=headers)
         data = response.json()
         
         results = []
@@ -41,15 +63,19 @@ def search_topic(query):
             "content": "\n".join(results) if results else "No information found",
             "citations": citations if citations else []
         }
+        logger.info(f"Search successful for '{query}': found {len(results)} results and {len(citations)} citations")
         return return_data
-    except:
+    except Exception as e:
+        logger.error(f"Search failed for query '{query}': {str(e)}")
         return {"content": "Search failed", "citations": []}
 
 def generate_report(topic, research_data, length="medium"):
     """Generate a structured report from research with specified length"""
+    logger.info(f"Generating {length} report for topic: {topic}")
     
     # Check if client is initialized
     if not client:
+        logger.error("Groq client not initialized: GROQ_API_KEY not configured")
         return "Error: GROQ_API_KEY not configured. Please set your API key."
     
     # Define length parameters
@@ -81,9 +107,11 @@ Keep it professional and informative."""
             max_tokens=max_tokens
         )
         
-        return response.choices[0].message.content
+        report = response.choices[0].message.content
+        logger.info(f"Report generated successfully for '{topic}' ({length} length)")
+        return report
     except Exception as e:
-        print(f"Error generating report: {str(e)}")
+        logger.error(f"Error generating report for '{topic}': {str(e)}")
         return f"Error generating report: {str(e)}. Please try again."
 
 def save_report(topic, report, citations=None):
@@ -91,21 +119,26 @@ def save_report(topic, report, citations=None):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"report_{topic.replace(' ', '_')}_{timestamp}.txt"
     
-    with open(filename, "w") as f:
-        f.write(f"Research Report: {topic}\n")
-        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(report)
+    try:
+        with open(filename, "w") as f:
+            f.write(f"Research Report: {topic}\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(report)
+            
+            # Add citations section
+            if citations:
+                f.write("\n\n" + "=" * 60 + "\n")
+                f.write("CITATIONS\n")
+                f.write("=" * 60 + "\n")
+                for citation in citations:
+                    f.write(f"{citation}\n")
         
-        # Add citations section
-        if citations:
-            f.write("\n\n" + "=" * 60 + "\n")
-            f.write("CITATIONS\n")
-            f.write("=" * 60 + "\n")
-            for citation in citations:
-                f.write(f"{citation}\n")
-    
-    return filename
+        logger.info(f"Report saved successfully: {filename}")
+        return filename
+    except Exception as e:
+        logger.error(f"Error saving report for topic '{topic}': {str(e)}")
+        return None
 
 def research_agent(topic, queries=None, length="medium"):
     """Main research flow with multiple queries - with console output"""
@@ -128,6 +161,7 @@ def research_agent(topic, queries=None, length="medium"):
 
 def research_agent_core(topic, queries=None, length="medium"):
     """Main research flow with multiple queries - core function without console output (for web app)"""
+    logger.info(f"Starting research for topic: {topic} (length: {length})")
     
     try:
         # If no additional queries provided, use the main topic
@@ -136,12 +170,15 @@ def research_agent_core(topic, queries=None, length="medium"):
         else:
             queries = [topic] + queries
         
+        logger.info(f"Total queries to search: {len(queries)}")
+        
         # Step 1: Multi-search
         all_research_data = []
         all_citations = []
         successful_searches = 0
         
         for i, query in enumerate(queries, 1):
+            logger.debug(f"Executing search {i}/{len(queries)}: {query}")
             search_result = search_topic(query)
             # Only add non-empty results
             if search_result['content'] and "No information found" not in search_result['content'] and "Search failed" not in search_result['content']:
@@ -149,8 +186,11 @@ def research_agent_core(topic, queries=None, length="medium"):
                 successful_searches += 1
             all_citations.extend(search_result['citations'])
         
+        logger.info(f"Completed searches: {successful_searches}/{len(queries)} successful")
+        
         # Check if we got any successful searches
         if successful_searches == 0:
+            logger.warning(f"No successful searches for topic '{topic}'")
             return {"report": "❌ Could not find enough information. Try different topics.", "filename": None, "citations": []}
         
         combined_research = "\n".join(all_research_data)
@@ -161,9 +201,10 @@ def research_agent_core(topic, queries=None, length="medium"):
         # Step 3: Save
         filename = save_report(topic, report, all_citations)
         
+        logger.info(f"Research completed successfully for '{topic}' - saved as {filename}")
         return {"report": report, "filename": filename, "citations": all_citations}
     except Exception as e:
-        print(f"Error in research_agent_core: {str(e)}")
+        logger.error(f"Error in research_agent_core for topic '{topic}': {str(e)}", exc_info=True)
         return {"report": f"Error during research: {str(e)}", "filename": None, "citations": []}
 
 # Main interface
