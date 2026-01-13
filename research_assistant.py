@@ -4,12 +4,15 @@ import json
 from datetime import datetime
 import os
 import streamlit as st
+
 # Get API key from environment variable
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY environment variable not set")
 
-client = Groq(api_key=GROQ_API_KEY)
+# Initialize client only if API key is available
+# (will be initialized later by web_app.py with proper error handling)
+client = None
+if GROQ_API_KEY:
+    client = Groq(api_key=GROQ_API_KEY)
 
 def search_topic(query):
     """Search and return relevant info with citations"""
@@ -44,6 +47,10 @@ def search_topic(query):
 
 def generate_report(topic, research_data, length="medium"):
     """Generate a structured report from research with specified length"""
+    
+    # Check if client is initialized
+    if not client:
+        return "Error: GROQ_API_KEY not configured. Please set your API key."
     
     # Define length parameters
     length_params = {
