@@ -8,8 +8,18 @@ import os
 from unittest.mock import patch, MagicMock
 from research_assistant import search_topic, generate_report, research_agent_core
 
-# Set a test API key
-os.environ['GROQ_API_KEY'] = 'test_key_for_testing'
+# Load API key from environment or .env file
+if not os.getenv('GROQ_API_KEY'):
+    try:
+        with open('.env', 'r') as f:
+            for line in f:
+                if 'GROQ_API_KEY' in line:
+                    # Parse: GROQ_API_KEY = "key_value"%
+                    key = line.split('=')[1].strip().strip('"').rstrip('%')
+                    os.environ['GROQ_API_KEY'] = key
+                    break
+    except:
+        os.environ['GROQ_API_KEY'] = 'test_key_for_testing'
 
 # Mock save_report to prevent file creation during tests
 @patch('research_assistant.save_report')
@@ -68,7 +78,7 @@ class TestGenerateReport(unittest.TestCase):
         """Test short report generation"""
         report = generate_report("AI", self.test_data, "short")
         self.assertIsInstance(report, str)
-        # Report should either be valid or contain error about missing API key
+        # Report should be non-empty
         self.assertTrue(len(report) > 0)
     
     def test_report_generation_medium(self):
@@ -87,11 +97,13 @@ class TestGenerateReport(unittest.TestCase):
         """Test report generation with default length"""
         report = generate_report("AI", self.test_data)
         self.assertIsInstance(report, str)
+        self.assertTrue(len(report) > 0)
     
     def test_report_with_invalid_length(self):
         """Test report generation with invalid length defaults to medium"""
         report = generate_report("AI", self.test_data, "invalid")
         self.assertIsInstance(report, str)
+        self.assertTrue(len(report) > 0)
 
 
 class TestResearchAgentCore(unittest.TestCase):
@@ -148,6 +160,17 @@ class TestSearchSpecificQueries(unittest.TestCase):
         self.assertTrue(len(result['content']) > 0, 
                        "quantum tunneling search should return content")
         self.assertNotIn("No information found", result['content'])
+    
+    def test_quantum_tunnelling_uk_spelling(self):
+        """Test quantum tunnelling (UK spelling)"""
+        result = search_topic("quantum tunnelling")
+        self.assertTrue(len(result['content']) > 0)
+    
+    def test_quantum_consciousness_search(self):
+        """Test that quantum consciousness returns results"""
+        result = search_topic("quantum consciousness")
+        self.assertTrue(len(result['content']) > 0, 
+                       "quantum consciousness search should return content")
     
     def test_quantum_generic_search(self):
         """Test that generic quantum search returns results"""

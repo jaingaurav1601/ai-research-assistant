@@ -190,8 +190,31 @@ def research_agent_core(topic, queries=None, length="medium"):
         
         # Check if we got any successful searches
         if successful_searches == 0:
-            logger.warning(f"No successful searches for topic '{topic}'")
-            return {"report": "❌ Could not find enough information. Try different topics.", "filename": None, "citations": []}
+            logger.warning(f"No successful searches for topic '{topic}' - using LLM fallback")
+            # Use LLM to generate content when no search results available
+            if client:
+                fallback_prompt = f"""Generate a comprehensive report about "{topic}". 
+Include:
+1. Overview (2-3 sentences)
+2. Key Points (3-5 bullet points)
+3. Conclusion (1-2 sentences)
+
+Make it informative and well-structured."""
+                try:
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content": fallback_prompt}],
+                        max_tokens=700
+                    )
+                    report = response.choices[0].message.content
+                    logger.info(f"Generated report using LLM fallback for '{topic}'")
+                    filename = save_report(topic, report, [])
+                    return {"report": report, "filename": filename, "citations": []}
+                except Exception as e:
+                    logger.error(f"LLM fallback failed: {str(e)}")
+                    return {"report": f"❌ Could not find information. Error: {str(e)}", "filename": None, "citations": []}
+            else:
+                return {"report": "❌ Could not find enough information. Try different topics.", "filename": None, "citations": []}
         
         combined_research = "\n".join(all_research_data)
         
